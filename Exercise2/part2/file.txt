@@ -1,1 +1,106 @@
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
 
+static BLEUUID serviceUUID("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+static BLEUUID charUUID("beb5483e-36e1-4688-b7f5-ea07361b26a8");
+
+static bool doConnect = false;
+static bool connected = false;
+static bool doScan = false;
+static BLEAdvertisedDevice* myDevice;
+static BLERemoteCharacteristic* pRemoteCharacteristic;
+
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
+      BLEDevice::getScan()->stop();
+      myDevice = &advertisedDevice;
+      doConnect = true;
+      Serial.println("Tim thay thiet bi muc tieu!");
+    }
+  }
+};
+
+class MyClientCallback : public BLEClientCallbacks {
+  void onConnect(BLEClient* pclient) {
+    connected = true;
+    Serial.println("Da ket noi thanh cong!");
+  }
+  void onDisconnect(BLEClient* pclient) {
+    connected = false;
+    Serial.println("Ngat ket noi - se quet lai...");
+    doScan = true;
+  }
+};
+
+static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,
+                           uint8_t* pData, size_t length, bool isNotify) {
+  Serial.print("Notify nhan duoc: ");
+  for (size_t i = 0; i < length; i++) Serial.printf("%02X ", pData[i]);
+  Serial.println();
+}
+
+bool connectToServer() {
+  BLEClient* pClient = BLEDevice::createClient();
+  pClient->setClientCallbacks(new MyClientCallback());
+
+  if (!pClient->connect(myDevice)) {
+    Serial.println("Ket noi that bai");
+    return false;
+  }
+
+  BLERemoteService* pRemoteService = pClient->getService(serviceUUID);
+  if (pRemoteService == nullptr) {
+    pClient->disconnect();
+    Serial.println("Khong tim thay service");
+    return false;
+  }
+
+  pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
+  if (pRemoteCharacteristic == nullptr) {
+    pClient->disconnect();
+    Serial.println("Khong tim thay characteristic");
+    return false;
+  }
+
+  if (pRemoteCharacteristic->canNotify()) {
+    pRemoteCharacteristic->registerForNotify(notifyCallback);
+    Serial.println("Da dang ky Notify");
+  } else if (pRemoteCharacteristic->canRead()) {
+    String value = pRemoteCharacteristic->readValue();
+    Serial.print("Gia tri doc duoc: ");
+    Serial.println(value.c_str());
+  }
+  return true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  BLEDevice::init("");
+
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setInterval(1349);
+  pBLEScan->setWindow(449);
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(0);
+}
+
+void loop() {
+  if (doConnect) {
+    if (connectToServer()) {
+      Serial.println("Ket noi GATT Server thanh cong");
+    } else {
+      doScan = true;
+    }
+    doConnect = false;
+  }
+
+  if (doScan) {
+    BLEDevice::getScan()->start(0);
+    doScan = false;
+  }
+  delay(100);
+}
