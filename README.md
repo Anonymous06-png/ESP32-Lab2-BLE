@@ -1,134 +1,240 @@
-🚀 ESP32 – Lab2: BLE (Bluetooth Low Energy)
-📘 1. Giới thiệu
+📘 ESP32 – Lab2: BLE (Bluetooth Low Energy)
+1. Giới thiệu
 
-Bài thực hành này giúp sinh viên nắm vững cách triển khai các chức năng BLE trên ESP32, bao gồm:
+Bài thực hành này giúp sinh viên hiểu và triển khai các tính năng BLE của ESP32:
 
 BLE Peripheral (GATT Server)
 
 BLE Central (GATT Client)
 
-BLE 2 ESP32 giao tiếp qua BLE
+BLE giao tiếp giữa 2 ESP32
 
-BLE nâng cao: Notify, Pairing, truyền chuỗi dài,...
+BLE nâng cao: Notify, Pairing, truyền chuỗi dài
 
-Toàn bộ ví dụ được lập trình bằng Arduino IDE với thư viện ESP32 BLE Arduino.
+Toàn bộ được lập trình bằng Arduino IDE + thư viện ESP32 BLE Arduino.
 
+2. Nội dung & mã nguồn từng phần
+🔵 Part 1 – BLE Central (Client)
 
-## 📁 2. Cấu trúc thư mục `Exercise2/`
-Exercise2
-│
-├── 📂 part1_BLE_Peripheral/
-│ └── 📄 main.ino
-│
-├── 📂 part2_BLE_Central/
-│ └── 📄 main.ino
-│
-├── 📂 part3_BLE_2_ESP32/
-│ ├── 📄 server_esp32.ino
-│ └── 📄 client_esp32.ino
-│
-├── 📂 part4_BLE_Advanced/
-│ ├── 📄 BLE_notify.ino
-│ ├── 📄 BLE_pairing.ino
-│ └── 📄 BLE_long_string.ino
-│
-└── 📄 README.md ← file mô tả này
+ESP32 làm BLE Central: quét → tìm thiết bị BLE mục tiêu → kết nối → nhận Notify hoặc Read characteristic.
 
-🔧 3. Phần mềm & thư viện yêu cầu
+🔑 Chức năng chính
 
-Arduino IDE 2.x
+Quét BLE và tìm đúng Service UUID
 
-ESP32 Board Package
+Kết nối đến BLE Server
 
-Thư viện:
+Lấy Remote Service + Characteristic
 
-ESP32 BLE Arduino
+Nhận Notify hoặc đọc giá trị
 
-(Tùy chọn) ArduinoJSON
+Tự động quét lại nếu mất kết nối
 
-🟦 4. Part 1 – BLE Peripheral (GATT Server)
-📌 Chức năng
+#include <BLEDevice.h>
+#include <BLEScan.h>
+#include <BLEClient.h>
 
-ESP32 phát BLE advertising (ESP32_BLE)
+static BLEUUID serviceUUID("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+static BLEUUID charUUID("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
-Tạo một service + characteristic READ/WRITE
+BLERemoteCharacteristic* pRemoteCharacteristic;
+BLEAdvertisedDevice* targetDevice;
+bool doConnect = false;
 
-Kết nối bằng app nRF Connect để đọc/ghi dữ liệu
+class DeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice dev) {
+    if (dev.isAdvertisingService(serviceUUID)) {
+      BLEDevice::getScan()->stop();
+      targetDevice = new BLEAdvertisedDevice(dev);
+      doConnect = true;
+      Serial.println("Found target device!");
+    }
+  }
+};
 
-💡 Code chính
-BLEDevice::init("ESP32_BLE");  // Khởi tạo BLE và đặt tên quảng bá
+void setup() {
+  Serial.begin(115200);
+  BLEDevice::init("");
 
-BLEServer *pServer = BLEDevice::createServer();  
-// Tạo BLE server – ESP32 đóng vai trò Peripheral
+  BLEScan* scan = BLEDevice::getScan();
+  scan->setAdvertisedDeviceCallbacks(new DeviceCallbacks());
+  scan->setActiveScan(true);
+  scan->start(0);   // Quét liên tục
+}
 
-BLEService *pService = pServer->createService(SERVICE_UUID);
-// Tạo service có UUID riêng
+void loop() {
+  if (doConnect) {
+    BLEClient* client = BLEDevice::createClient();
+    if (client->connect(targetDevice)) {
+      auto service = client->getService(serviceUUID);
+      pRemoteCharacteristic = service->getCharacteristic(charUUID);
 
-BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
-);
-// Tạo characteristic có quyền READ & WRITE
+      if (pRemoteCharacteristic->canNotify()) {
+        pRemoteCharacteristic->registerForNotify(
+          [](BLERemoteCharacteristic*, uint8_t* data, size_t len, bool){
+            Serial.print("Notify: ");
+            Serial.write(data, len);
+            Serial.println();
+          }
+        );
+      }
+    }
+    doConnect = false;
+  }
+}
 
-▶️ Kết quả mong đợi
+🔹 Mô tả nhanh
 
-App nRF Connect thấy ESP32_BLE
+BLEDevice::init() → khởi tạo BLE & đặt tên
 
-Đọc được chuỗi "Hello from ESP32"
+createService() → tạo service BLE
 
-Ghi dữ liệu từ điện thoại → hiển thị trên Serial Monitor
+createCharacteristic() → tạo characteristic có READ + WRITE
 
-🟩 5. Part 2 – BLE Central (GATT Client)
-📌 Chức năng
+startAdvertising() → phát BLE để thiết bị khác tìm thấy
 
-ESP32 quét BLE xung quanh
+🔶 PART 2 — BLE CENTRAL (GATT CLIENT)
+🟢 Part 2 – BLE Peripheral (Server)
 
-Kết nối đến ESP32 Peripheral
+ESP32 làm BLE Server: tạo service → tạo characteristic → Notify dữ liệu cảm biến → nhận lệnh bật/tắt LED.
 
-Đọc/ghi characteristic
+🔑 Chức năng chính
 
-💡 Code chính
-BLEScan* pScan = BLEDevice::getScan();
-pScan->setActiveScan(true);  // Scan chủ động, tốc độ nhanh hơn
+Tạo BLE Server + Service
 
-BLEScanResults results = pScan->start(5);
+Characteristic 1 (READ + NOTIFY): gửi nhiệt độ giả lập
 
+Characteristic 2 (WRITE): nhận lệnh bật/tắt LED
 
-→ ESP32 sẽ tìm xem có thiết bị nào quảng bá đúng SERVICE_UUID không.
+Notify mỗi 2 giây khi có device kết nối
 
-🟧 6. Part 3 – Hai ESP32 giao tiếp BLE
-ESP32 A (Peripheral) → gửi dữ liệu → ESP32 B (Central)
+Callback xử lý kết nối và ghi dữ liệu
 
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
 
-Khi chạy song song:
+#define SERVICE_UUID      "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define SENSOR_CHAR_UUID  "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define LED_CHAR_UUID     "8ec90002-f315-4f60-9fb8-838830daea50"
 
-ESP32 A gửi chuỗi "Temp: xx" (giả lập)
+BLECharacteristic* sensorChar;
+BLECharacteristic* ledChar;
+bool deviceConnected = false;
+int ledPin = 2;
 
-ESP32 B nhận → in Serial
+class ServerCB : public BLEServerCallbacks {
+  void onConnect(BLEServer*) {
+    deviceConnected = true;
+    Serial.println("Device connected.");
+  }
+  void onDisconnect(BLEServer*) {
+    deviceConnected = false;
+    Serial.println("Device disconnected.");
+    BLEDevice::startAdvertising();
+  }
+};
 
-🟪 7. Part 4 – BLE nâng cao
-🟣 Notify
+class LEDWriteCB : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *c) {
+    String v = c->getValue();
+    if (v == "1") { digitalWrite(ledPin, HIGH); Serial.println("LED ON"); }
+    else          { digitalWrite(ledPin, LOW);  Serial.println("LED OFF"); }
+  }
+};
 
-ESP32 server tự động gửi dữ liệu khi thay đổi (không cần polling).
+void setup() {
+  Serial.begin(115200);
+  pinMode(ledPin, OUTPUT);
 
-🔒 Secure Pairing
+  BLEDevice::init("ESP32_BLE");
+  BLEServer* server = BLEDevice::createServer();
+  server->setCallbacks(new ServerCB());
 
-Cấu hình passkey → điện thoại phải nhập mã mới kết nối.
+  BLEService* service = server->createService(SERVICE_UUID);
 
-📦 Truyền chuỗi dài
+  sensorChar = service->createCharacteristic(
+      SENSOR_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  sensorChar->addDescriptor(new BLE2902());
 
-Chia nhỏ gói (MTU ~ 20 bytes), ghép lại ở phía client.
+  ledChar = service->createCharacteristic(
+      LED_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+  ledChar->setCallbacks(new LEDWriteCB());
 
-📌 8. Kết luận
+  service->start();
+  BLEDevice::startAdvertising();
+  Serial.println("BLE Server started!");
+}
 
-Thông qua lab này, sinh viên hiểu được:
+void loop() {
+  if (deviceConnected) {
+    int temp = random(20, 30);
+    sensorChar->setValue(String(temp).c_str());
+    sensorChar->notify();
+    delay(2000);
+  }
+}
 
-Kiến trúc BLE: Advertising → Connecting → GATT
+🔷 PART 3 — BLE COMMUNICATION GIỮA 2 ESP32
 
-Sự khác nhau giữa Peripheral và Central
+Cấu trúc:
 
-Kỹ thuật đọc/ghi Characteristic
+ESP32 A → Peripheral: gửi "Temp: xx"
 
-Cách mở rộng BLE: notify, pairing, truyền dữ liệu
+ESP32 B → Central: nhận dữ liệu & in Serial
 
-BLE phù hợp các ứng dụng IoT tầm ngắn, tiêu thụ năng lượng thấp.
+Giải thích nhanh
+
+A cập nhật giá trị characteristic mỗi 2 giây
+
+B đọc lại characteristic liên tục
+
+Đây là dạng BLE polling cơ bản
+
+🟣 PART 4 — BLE NÂNG CAO
+1️⃣ Notify
+
+Server tự gửi dữ liệu khi thay đổi mà client không cần đọc lại.
+
+2️⃣ Secure Pairing (Passkey)
+
+ESP32 yêu cầu nhập mã PIN khi điện thoại kết nối
+
+Tăng bảo mật BLE
+
+3️⃣ Truyền chuỗi dài
+
+BLE chỉ gửi ~20 bytes mỗi packet
+
+Phải chia nhỏ → gửi → ghép lại phía client
+
+3. Cách chạy
+
+Mở Arduino IDE → chọn board ESP32 Dev Module
+
+Tải thư viện ESP32 BLE Arduino
+
+Nạp code từng phần:
+
+part1 → Peripheral
+
+part2 → Central
+
+part3 → chạy 2 board
+
+Mở app nRF Connect (Android/iOS) để test
+
+4. Kết luận
+
+Student sẽ hiểu rõ:
+
+Quy trình BLE: Advertising → Connecting → GATT
+
+Sự khác nhau giữa Central / Peripheral
+
+Cách đọc/ghi characteristic
+
+Notify, Pairing, truyền gói dữ liệu BLE
+
+BLE là giải pháp tối ưu cho các ứng dụng IoT tầm ngắn, tiết kiệm năng lượng.
+
