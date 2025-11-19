@@ -13,25 +13,26 @@ BLE nâng cao: Notify, Pairing, truyền chuỗi dài,...
 
 Toàn bộ ví dụ được lập trình bằng Arduino IDE với thư viện ESP32 BLE Arduino.
 
-📁 2. Cấu trúc thư mục
-Exercise2/
+
+## 📁 2. Cấu trúc thư mục `Exercise2/`
+Exercise2
 │
-├── part1_BLE_Peripheral/
-│   └── main.ino
+├── 📂 part1_BLE_Peripheral/
+│ └── 📄 main.ino
 │
-├── part2_BLE_Central/
-│   └── main.ino
+├── 📂 part2_BLE_Central/
+│ └── 📄 main.ino
 │
-├── part3_BLE_2_ESP32/
-│   ├── server_esp32.ino
-│   └── client_esp32.ino
+├── 📂 part3_BLE_2_ESP32/
+│ ├── 📄 server_esp32.ino
+│ └── 📄 client_esp32.ino
 │
-├── part4_BLE_Advanced/
-│   ├── BLE_notify.ino
-│   ├── BLE_pairing.ino
-│   └── BLE_long_string.ino
+├── 📂 part4_BLE_Advanced/
+│ ├── 📄 BLE_notify.ino
+│ ├── 📄 BLE_pairing.ino
+│ └── 📄 BLE_long_string.ino
 │
-└── README.md   ← file mô tả này
+└── 📄 README.md ← file mô tả này
 
 🔧 3. Phần mềm & thư viện yêu cầu
 
