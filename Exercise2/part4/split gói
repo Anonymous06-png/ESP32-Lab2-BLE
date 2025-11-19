@@ -1,1 +1,74 @@
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
+BLEServer* pServer = NULL;
+BLECharacteristic* longChar = NULL;
+bool deviceConnected = false;
+
+#define SERVICE_UUID     "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define LONG_CHAR_UUID   "1c2775f0-3d48-4a3c-93bc-32b4c701a10b"
+
+// CALLBACK ĐƠN GIẢN NHẤT – KHÔNG LẤY MTU ĐỂ TRÁNH LỖI
+class MyCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {               // ← bỏ tham số thứ 2
+      deviceConnected = true;
+      Serial.println("Connected!");
+    }
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      BLEDevice::startAdvertising();
+      Serial.println("Disconnected");
+    }
+};
+
+void sendLongData() {
+  if (!deviceConnected) return;
+
+  String data = "START_OF_DATA\n";
+  for (int i = 0; i < 150; i++) {
+    data += "Dòng " + String(i) + ": Test chuỗi dài để split packet BLE 1234567890 ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz\n";
+  }
+  data += "END_OF_DATA";
+
+  const int PACKET_SIZE = 200;   // an toàn với mọi MTU (tối đa thực tế thường 185–517)
+
+  Serial.printf("Gửi chuỗi %d bytes, chia thành gói <= %d bytes\n", data.length(), PACKET_SIZE);
+
+  for (size_t i = 0; i < data.length(); i += PACKET_SIZE) {
+    String chunk = data.substring(i, i + PACKET_SIZE);
+    longChar->setValue(chunk);
+    longChar->notify();
+    delay(25);  // bắt buộc phải delay, không thì stack BLE bị nghẽn
+  }
+  Serial.println("=== GỬI XONG CHUỖI DÀI ===");
+}
+
+void setup() {
+  Serial.begin(115200);
+  BLEDevice::init("ESP32_LongData_OK");
+
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyCallbacks());
+
+  BLEService* pService = pServer->createService(SERVICE_UUID);
+
+  longChar = pService->createCharacteristic(
+               LONG_CHAR_UUID,
+               BLECharacteristic::PROPERTY_NOTIFY
+             );
+  longChar->addDescriptor(new BLE2902());
+
+  pService->start();
+  BLEDevice::startAdvertising();
+  Serial.println("Phần 3 - Truyền chuỗi dài sẵn sàng!");
+}
+
+unsigned long lastSend = 0;
+void loop() {
+  if (deviceConnected && millis() - lastSend > 20000) {
+    lastSend = millis();
+    sendLongData();
+  }
+}
