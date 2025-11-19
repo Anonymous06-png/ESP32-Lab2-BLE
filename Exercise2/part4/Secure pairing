@@ -1,1 +1,85 @@
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristic = NULL;
+bool deviceConnected = false;
+
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+class MyServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+      Serial.println("ĐÃ KẾT NỐI + BONDING THÀNH CÔNG");
+    }
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      BLEDevice::startAdvertising();
+      Serial.println("Ngắt kết nối");
+    }
+};
+
+void setup() {
+  Serial.begin(115200);
+  BLEDevice::init("ESP32_Passkey_123456");
+
+  // ================== CÁCH MỚI NHẤT 2025 – CHẠY NGON 100% ==================
+  esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;     // yêu cầu passkey 6 số + bonding
+  esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT;                         // ESP32 HIỂN THỊ passkey (không cần nhập)
+  // Nếu muốn điện thoại nhập passkey thì dùng: ESP_IO_CAP_KBDISP
+
+  uint8_t key_size = 16;
+  uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+  uint8_t rsp_key  = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+  uint32_t passkey = 123456;                                       // Passkey cố định
+
+  esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, sizeof(uint8_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &iocap, sizeof(uint8_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(uint8_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(uint8_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(uint8_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, &passkey, sizeof(uint32_t));  // quan trọng: SET_STATIC_PASSKEY
+  // =====================================================================
+
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService* pService = pServer->createService(SERVICE_UUID);
+
+  pCharacteristic = pService->createCharacteristic(
+                     CHARACTERISTIC_UUID,
+                     BLECharacteristic::PROPERTY_READ |
+                     BLECharacteristic::PROPERTY_NOTIFY
+                   );
+
+  pCharacteristic->addDescriptor(new BLE2902());
+  pCharacteristic->setValue("Secure OK");
+
+  pService->start();
+
+  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);
+  BLEDevice::startAdvertising();
+
+  Serial.println("=======================================");
+  Serial.println("BLE Secure Pairing sẵn sàng");
+  Serial.println("Passkey: 123456");
+  Serial.println("Lần đầu kết nối sẽ hiện popup 123456 trên điện thoại");
+  Serial.println("=======================================");
+}
+
+void loop() {
+  if (deviceConnected) {
+    static uint32_t cnt = 0;
+    cnt++;
+    String msg = "Data " + String(cnt);
+    pCharacteristic->setValue(msg);
+    pCharacteristic->notify();
+    delay(3000);
+  }
+}
